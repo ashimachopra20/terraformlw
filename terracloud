@@ -51,6 +51,145 @@ ingress {
     Name = "sec_g"
   }
 }
+resource "aws_s3_bucket" "buckett" {
+  bucket = "task1bucketty"
+  force_destroy = true
+  acl = "public-read"
+
+ 
+  tags = {
+    Name        = "buckett"
+    Environment = "Dev"
+  }
+}
+output "myost" {
+  value = aws_s3_bucket.buckett
+}
+
+
+resource "aws_s3_bucket_object" "bucketobj" {
+  bucket = "task1bucketty"
+  key    = "myaws.jpg"
+  source = "myaws.jpg"
+  acl = "public-read-write"
+ 
+}
+
+locals {
+  s3_origin_id = "s3Origin"
+}
+
+
+resource "aws_cloudfront_distribution" "s3_distribution" {
+ /* depends_on = [
+    null_resource.remote1
+  ]*/
+  origin {
+    domain_name = aws_s3_bucket.buckett.bucket_regional_domain_name
+    origin_id   = local.s3_origin_id
+  }
+
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = "The image of AWS"
+  default_root_object = "myaws.jpg"
+
+  default_cache_behavior {
+    allowed_methods  = ["DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = local.s3_origin_id
+
+    forwarded_values {
+      query_string = false
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    viewer_protocol_policy = "allow-all"
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/content/immutable/*"
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD", "OPTIONS"]
+    target_origin_id = local.s3_origin_id
+
+    forwarded_values {
+      query_string = false
+      headers      = ["Origin"]
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl                = 0
+    default_ttl            = 86400
+    max_ttl                = 31536000
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+  }
+
+  ordered_cache_behavior {
+    path_pattern     = "/content/*"
+    allowed_methods  = ["GET", "HEAD", "OPTIONS"]
+    cached_methods   = ["GET", "HEAD"]
+    target_origin_id = local.s3_origin_id
+
+    forwarded_values {
+      query_string = false
+
+      cookies {
+        forward = "none"
+      }
+    }
+
+    min_ttl                = 0
+    default_ttl            = 3600
+    max_ttl                = 86400
+    compress               = true
+    viewer_protocol_policy = "redirect-to-https"
+  }
+
+  price_class = "PriceClass_200"
+
+  restrictions {
+    geo_restriction {
+      restriction_type = "blacklist"
+      locations        = ["US", "CA"]
+    }
+  }
+
+  tags = {
+    Environment = "production"
+  }
+
+  viewer_certificate {
+    cloudfront_default_certificate = true
+  }
+  connection {
+    type     = "ssh"
+    user     = "ec2-user"
+    private_key = tls_private_key.example.private_key_pem
+    host     = aws_instance.ashweb.public_ip
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
 resource "aws_instance" "ashweb" {
   ami           = "ami-0447a12f28fddb066"
   instance_type = "t2.micro"
@@ -85,12 +224,61 @@ resource "null_resource" "local1" {
     command = "echo ${aws_instance.ashweb.public_ip} > publicip.txt"
   }
 }
-
+/*
 resource "null_resource" "local2" {
   depends_on = [
-    null_resource.remote1,aws_cloudfront_distribution.s3_distribution
-  ]
+    aws_cloudfront_distribution.s3_distribution
+  
   provisioner "local-exec" {
     command = "start chrome ${aws_instance.ashweb.public_ip}"
+  }
+}
+*/
+
+output "outaz"{
+  value=aws_instance.ashweb.availability_zone
+}
+
+
+resource "aws_ebs_volume" "ebs1" {
+  availability_zone = aws_instance.ashweb.availability_zone
+  size = 1
+
+  tags = {
+    Name = "ebs1"
+  }
+}
+output "myos_ip" {
+  value = aws_instance.ashweb.public_ip
+}
+resource "aws_volume_attachment" "ebs_att" {
+  device_name = "/dev/sdh"
+  volume_id   = aws_ebs_volume.ebs1.id
+  instance_id = aws_instance.ashweb.id
+ force_detach = true
+
+ connection {
+    type     = "ssh"
+    user     = "ec2-user"
+    private_key = tls_private_key.example.private_key_pem
+    host     = aws_instance.ashweb.public_ip
+  }
+
+provisioner "remote-exec" {
+    inline = [
+      "sudo mkfs.ext4  /dev/xvdh",
+      "sudo mount  /dev/xvdh  /var/www/html",
+     "sudo mkdir /root/ec2-user/code",
+      "sudo git clone https://github.com/ashimachopra20/lworld.git /home/ec2-user/code/",
+      "sudo sed -i s/url/'${aws_cloudfront_distribution.s3_distribution.domain_name}'/g /home/ec2-user/code/ash.html",
+      "sudo cp /home/ec2-user/code/* /var/www/html/"
+    ]
+  }
+  provisioner "local-exec" {
+    //inline = [
+      //"sudo su << EOF",
+      command = "start chrome ${aws_instance.ashweb.public_ip}/ash.html"
+      //"EOF",
+    //]
   }
 }
