@@ -1,0 +1,96 @@
+provider "aws" {
+  region     = "ap-south-1"
+ profile = "ashimach"
+}
+variable "key_name" {}
+
+resource "tls_private_key" "example" {
+  algorithm   = "RSA"
+  rsa_bits = "4096"
+}
+
+
+resource "aws_key_pair" "generated_key" {
+  key_name   = var.key_name
+  public_key = tls_private_key.example.public_key_openssh
+}
+
+resource "aws_security_group" "sec_g" {
+  name        = "sec_g"
+  
+  vpc_id      = "vpc-45f1ec2d"
+
+  ingress {
+    
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+
+  }
+ingress {
+    
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+
+  }
+
+
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+
+  }
+
+  tags = {
+    Name = "sec_g"
+  }
+}
+resource "aws_instance" "ashweb" {
+  ami           = "ami-0447a12f28fddb066"
+  instance_type = "t2.micro"
+  key_name = aws_key_pair.generated_key.key_name
+security_groups = [ "sec_g" ]
+
+ connection {
+    type     = "ssh"
+    user     = "ec2-user"
+private_key =tls_private_key.example.private_key_pem
+host = aws_instance.ashweb.public_ip
+
+  }
+
+   provisioner "remote-exec" {
+    
+    inline = [
+      "sudo yum install httpd php git -y",
+      "sudo systemctl restart httpd",
+      "sudo systemctl enable httpd"
+    ]
+}
+tags = {
+    Name = "ashweb"
+  }
+
+  }
+resource "null_resource" "local1" {
+ 
+
+  provisioner "local-exec" {
+    command = "echo ${aws_instance.ashweb.public_ip} > publicip.txt"
+  }
+}
+
+resource "null_resource" "local2" {
+  depends_on = [
+    null_resource.remote1,aws_cloudfront_distribution.s3_distribution
+  ]
+  provisioner "local-exec" {
+    command = "start chrome ${aws_instance.ashweb.public_ip}"
+  }
+}
